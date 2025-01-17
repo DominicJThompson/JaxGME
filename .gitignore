@@ -3,3 +3,4 @@ pyvenv.cfg
 __pycache__
 pyvenv.cfg
 .DS_Store
+lib/python3.11/site-packages/
