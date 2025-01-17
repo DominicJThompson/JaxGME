@@ -1,3 +1,5 @@
 # created by virtualenv automatically
 pyvenv.cfg
 __pycache__
+pyvenv.cfg
+.DS_Store

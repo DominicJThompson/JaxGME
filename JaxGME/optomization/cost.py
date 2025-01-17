@@ -7,7 +7,7 @@ class Cost(object):
     Class defining the cost function for the optomization
     """
 
-    def __init__(self, phc_def, phc_def_inputs, a = 266):
+    def __init__(self, a = 266):
         """
             Holds all the perameters for the cost fucntion
 
@@ -16,8 +16,6 @@ class Cost(object):
                 phc_def_inputs : the requred inputs to your phc definition fucntion except
                                  for the variables we alter during optoization. Stored in dictionary
         """
-        self.phc_def = phc_def
-        self.phc_def_inputs = phc_def_inputs
         self.a = a
 
 
@@ -42,9 +40,9 @@ class Backscatter(Cost):
     Defines the cost function associate with backscattering
     """
 
-    def __init__(self, phc_def, phc_def_inputs, a=266, phidiv = 45, lp = 40, sig = 3):
+    def __init__(self, a=266, phidiv = 45, lp = 40, sig = 3):
         # Call the master class constructor
-        super().__init__(phc_def, phc_def_inputs, a=a)
+        super().__init__(a=a)
         self.phidiv = phidiv
         self.lp = lp
         self.sig = sig
