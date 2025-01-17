@@ -13,8 +13,18 @@ import jax.numpy as jnp
 JaxGME.set_backend('jax')
 import time
 
+# Set global font sizes
+plt.rcParams.update({
+    'font.size': 14,        # General font size
+    'axes.titlesize': 18,   # Title font size
+    'axes.labelsize': 16,   # Axis label font size
+    'xtick.labelsize': 12,  # X-tick label font size
+    'ytick.labelsize': 12,  # Y-tick label font size
+    'legend.fontsize': 14   # Legend font size
+})
 
-def W1(vars=jnp.zeros((0,3)),NyChange=3,Ny=10,dslab=170/266,eps_slab=3.4638,ra=.3):
+
+def W1(vars=jnp.zeros((0,0)),NyChange=3,Ny=10,dslab=170/266,eps_slab=3.4638,ra=.3):
 
     lattice = JaxGME.Lattice(jnp.array([1,0]),jnp.array([0,Ny*jnp.sqrt(3)]))
 
@@ -26,7 +36,7 @@ def W1(vars=jnp.zeros((0,3)),NyChange=3,Ny=10,dslab=170/266,eps_slab=3.4638,ra=.
         phc.add_shape(JaxGME.Circle(x_cent=vars[0,i],y_cent=vars[1,i],r=vars[2,i]))
 
     #now we want to add the air holes to our photonic crystal to make it the W1 waveguide we do this in a loop
-    for i in range(Ny*2):
+    for i in range(Ny*2-1):
         iy = i-Ny
         if i>=Ny:
             iy+=1
@@ -59,32 +69,45 @@ def W1Vars(NyChange=3,ra=.3):
             vars = vars.at[0,i].set(.5)
         vars = vars.at[1,i].set(iy*jnp.sqrt(3)/2)
     return(vars)
-
-def runGME(holes,path):
+# %%
+def alphaCalc(holes):
     phc = W1(vars=holes)
 
-    
-    gme = JaxGME.GuidedModeExp(phc,gmax=2.0000001)
-    gme.run(kpoints=path,numeig=30,compute_im=False,verbose=False)
+    gme = JaxGME.GuidedModeExp(phc,gmax=2.00001)
+    gme.run(kpoints=jnp.vstack([.8*jnp.pi]),numeig=21,compute_im=False,verbose=False)
 
-    return(gme,phc)
+    phc_def_inputs = {}
+    backCost = JaxGME.Backscatter(W1,phc_def_inputs)
 
+    alpha = backCost.cost(gme,phc,20,0)
 
-phc_def_inputs = {}
-backCost = JaxGME.Backscatter(W1,phc_def_inputs)
-
-nk = 100
-kmin, kmax = .5*jnp.pi,jnp.pi
-path = jnp.vstack((jnp.linspace(kmin,kmax,nk),jnp.zeros(nk)))
+    return(alpha)
 
 vars = W1Vars()
-gme,phc = runGME(vars,path)
+out = alphaCalc(vars)
+gradFunc = jax.grad(alphaCalc)
+grad = gradFunc(vars)
 
-alpha = backCost.cost(gme,phc,22,170/266/2,path)
+#%%
+diff = 1e-5
+t1 = time.time()
+def finite_diff():
+    out = alphaCalc(vars)
+    finite_grad = jnp.zeros_like(grad)
+    for i in range(grad.shape[0]):
+        print(i)
+        for j in range(grad.shape[1]):
+            vars2 = W1Vars()
+            vars2 = vars2.at[i,j].add(diff)
+            finite_grad = finite_grad.at[i,j].set((alphaCalc(vars2)-out)/diff)
+    return(finite_grad)
+fGrad = finite_diff()
+print(time.time()-t1)
+print(grad)
+print(fGrad)
 
 # %%
-from JaxGME.utils import z_to_lind
-
-print(z_to_lind(phc,170/266/2))
-
+plt.plot(grad.T)
+plt.plot(fGrad.T,'--')
+plt.show()
 # %%

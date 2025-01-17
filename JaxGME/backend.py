@@ -114,6 +114,7 @@ class NumpyBackend(Backend):
     power = staticmethod(np.power)
     matmul = staticmethod(np.matmul)
     tan = staticmethod(np.tan)
+    arctan = staticmethod(np.arctan)
 
     # Dot product between a scipy sparse matrix and a numpy array.
     spdot = staticmethod(lambda spmat, mat: spmat.dot(mat))
@@ -215,6 +216,7 @@ if JAX_AVAILABLE:
         power = staticmethod(jnp.power)
         matmul = staticmethod(jnp.matmul)
         tan = staticmethod(jnp.tan)
+        arctan = staticmethod(jnp.arctan)
 
         #this function has convergance issues, need to check input values are within the 
         #convergent region. Can change n_iter to alter region

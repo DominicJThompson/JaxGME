@@ -1,5 +1,6 @@
 import jax
 from JaxGME.backend import backend as bd
+from JaxGME.constants import c
 
 class Cost(object):
     """
@@ -41,7 +42,7 @@ class Backscatter(Cost):
     Defines the cost function associate with backscattering
     """
 
-    def __init__(self, phc_def, phc_def_inputs, a=266, phidiv = 15, lp = 40, sig = 3):
+    def __init__(self, phc_def, phc_def_inputs, a=266, phidiv = 45, lp = 40, sig = 3):
         # Call the master class constructor
         super().__init__(phc_def, phc_def_inputs, a=a)
         self.phidiv = phidiv
@@ -139,7 +140,7 @@ class Backscatter(Cost):
                 fis[comp] = compute_field_component(comp, xys, gme.gvec, ft[comp], ind_unique)
             else:
                 raise ValueError("Component can be any combination of 'xyz'.")
-
+    
         return fis
     
     def comp_pdote(self,gme,phc,n,z,borders,phis,k):
@@ -155,35 +156,37 @@ class Backscatter(Cost):
             E = self.get_xyfield(gme,n,borders,z,components='xyz')
             D = self.get_xyfield(gme,n,borders,z,field='D',components='xy')
 
-        Epara = bd.array([-bd.sin(phis)*E['x']/bd.sqrt(2),bd.cos(phis)*E['y'],E['z']/bd.sqrt(2)])
+        Epara = bd.array([-bd.sin(phis)*E['x'],bd.cos(phis)*E['y'],E['z']])
         Dperp = bd.array([bd.cos(phis)*D['x'],bd.sin(phis)*D['y'],bd.zeros_like(E['z'])])
 
-        p = Epara+(phc.layers[0].eps_b+1)*Dperp*(2*phc.layers[0].eps_b*1)
+        p = Epara+(phc.layers[0].eps_b+1)*Dperp/(2*phc.layers[0].eps_b*1)
 
         pdeR = bd.conj(E['x'])*bd.conj(p[0])+bd.conj(E['y'])*bd.conj(p[1])+bd.conj(E['z'])*bd.conj(p[2])
         pdeRP = E['x']*p[0]+E['y']*p[1]+E['z']*p[2]
 
         return(pdeR,pdeRP)
     
-    def comp_backscatter(self, gme, phc, n, z, k):
+    def comp_backscatter(self, gme, phc, n, k):
         """
         This runs the calculation of the backscattering divided by the group index
         Given the simulation results
         """
-
         #get the points around the hole
         borders, phis, holeRad = self.hole_borders(phc)
-
+        
+        #proccess phis so that they work with the formula
+        phisLooped = bd.arctan(bd.tan(phis))
+   
         #get the necicary field information around the holes
-        pdeR, pdeRP = self.comp_pdote(gme,phc,n,z,borders,phis,k)
+        pdeR, pdeRP = self.comp_pdote(gme,phc,n,phc.layers[0].d,borders,phis,k)
 
         #do the multiplication for the p dot e part, we will add the jacobian determinate after
         pdeMeshs = bd.array([bd.meshgrid(pdeR[i],pdeRP[i]) for i in range(bd.shape(pdeR)[0])])
         preSumPde = pdeMeshs[:,0]*pdeMeshs[:,1]
 
         #the real exponential term
-        phiMesh, phiPMesh = bd.meshgrid(phis,phis)
-        realExp = (bd.abs(phiMesh-phiPMesh)*(-holeRad[:,bd.newaxis,bd.newaxis]))/self.lp #the unites cancle
+        phiMesh, phiPMesh = bd.meshgrid(phisLooped,phisLooped)
+        realExp = (bd.abs(phiMesh-phiPMesh)*(-holeRad[:,bd.newaxis,bd.newaxis]))/(self.lp/self.a) #the unites cancle
 
         #the imaginary exponential term
         xMeshs = bd.array([bd.stack(bd.meshgrid(borders[i, :, 0], borders[i, :, 0])) for i in range(bd.shape(borders)[0])])
@@ -191,25 +194,22 @@ class Backscatter(Cost):
 
         #run the intigral, including the jacobian determinite
         intigrand = preSumPde*bd.exp(realExp+1j*imagExp)
-        intigal = bd.sum(intigrand,axis=(1,2))*(holeRad*bd.pi**2/self.phidiv)**2
+        intigral = bd.sum(intigrand,axis=(1,2))*(holeRad*bd.pi*2/self.phidiv)**2
 
         #calculate the leading coeficnets for each of the holes
-        cirleCoeffs = ((.3*2*bd.pi)*self.a*gme.freqs[k,n]*self.sig*(phc.layers[0].eps_b-1)/2)**2
+        cirleCoeffs = ((c*2*bd.pi*gme.freqs[k,n])*(self.sig/self.a)*(phc.layers[0].eps_b-1)/2)**2
 
         #compute the final result
-        alpha = bd.real(bd.shape(intigal)[0]*cirleCoeffs*bd.sum(intigal)*(z*self.a*2/(2*bd.pi))**2*10**-9)
-
-        return(alpha)
-
-    def cost(self,gme,phc,n,z,ks):
+        alpha = bd.real(cirleCoeffs*bd.sum(intigral)*(phc.layers[0].d*self.a*10**-9)**2)
+        
+        return(alpha*266*1E-9) #this puts it in units of a^-1
+    
+    
+    def cost(self,gme,phc,n,k):
         """
         returns the cost associated with the backscattering
         """
-        alphas = []
-        for i in range(bd.shape(ks)[1]):
-            if i%25 == 0:
-                print(i)
-            alphas.append(self.comp_backscatter(gme,phc,n,z,i))
+        alpha = self.comp_backscatter(gme,phc,n,k)
 
-        return(alphas)
+        return(alpha)
     
