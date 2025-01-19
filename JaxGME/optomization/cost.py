@@ -40,9 +40,9 @@ class Backscatter(Cost):
     Defines the cost function associate with backscattering
     """
 
-    def __init__(self, a=266, phidiv = 45, lp = 40, sig = 3):
+    def __init__(self, phidiv = 45, lp = 40, sig = 3, **kwargs):
         # Call the master class constructor
-        super().__init__(a=a)
+        super().__init__(**kwargs)
         self.phidiv = phidiv
         self.lp = lp
         self.sig = sig
@@ -104,13 +104,13 @@ class Backscatter(Cost):
 
         return(fis)
     
-    def get_xyfield_jax(self,gme,n,xys,z,k,field='E',components='xyz'):
+    def get_xyfield_jax(self,gme,n,xys,z,field='E',components='xyz'):
         """
         Specialized function for getting the field around the circle edges while using jax backend
         """
         # Setup: extract Fourier-transformed fields
         ft = {}
-        ft['x'], ft['y'], ft['z'] = gme.ft_field_xy(field, k, n, z)
+        ft['x'], ft['y'], ft['z'] = gme.ft_field_xy(field, 0, n, z)
         _, ind_unique = bd.unique(gme.gvec, return_index=True, axis=1)
     
         # Helper function to compute the field component
@@ -141,15 +141,15 @@ class Backscatter(Cost):
     
         return fis
     
-    def comp_pdote(self,gme,phc,n,z,borders,phis,k):
+    def comp_pdote(self,gme,phc,n,z,borders,phis):
         """
         Computes the E and D dot products for the alpha calculation
         """
 
         #get the field components 
         if bd.__str__() == 'JaxBackend':
-            E = self.get_xyfield_jax(gme,n,borders,z,k,components='xyz')
-            D = self.get_xyfield_jax(gme,n,borders,z,k,field='D',components='xy')
+            E = self.get_xyfield_jax(gme,n,borders,z,components='xyz')
+            D = self.get_xyfield_jax(gme,n,borders,z,field='D',components='xy')
         else:
             E = self.get_xyfield(gme,n,borders,z,components='xyz')
             D = self.get_xyfield(gme,n,borders,z,field='D',components='xy')
@@ -164,7 +164,7 @@ class Backscatter(Cost):
 
         return(pdeR,pdeRP)
     
-    def comp_backscatter(self, gme, phc, n, k):
+    def comp_backscatter(self, gme, phc, n):
         """
         This runs the calculation of the backscattering divided by the group index
         Given the simulation results
@@ -176,7 +176,7 @@ class Backscatter(Cost):
         phisLooped = bd.arctan(bd.tan(phis))
    
         #get the necicary field information around the holes
-        pdeR, pdeRP = self.comp_pdote(gme,phc,n,phc.layers[0].d,borders,phis,k)
+        pdeR, pdeRP = self.comp_pdote(gme,phc,n,phc.layers[0].d,borders,phis)
 
         #do the multiplication for the p dot e part, we will add the jacobian determinate after
         pdeMeshs = bd.array([bd.meshgrid(pdeR[i],pdeRP[i]) for i in range(bd.shape(pdeR)[0])])
@@ -195,7 +195,7 @@ class Backscatter(Cost):
         intigral = bd.sum(intigrand,axis=(1,2))*(holeRad*bd.pi*2/self.phidiv)**2
 
         #calculate the leading coeficnets for each of the holes
-        cirleCoeffs = ((c*2*bd.pi*gme.freqs[k,n])*(self.sig/self.a)*(phc.layers[0].eps_b-1)/2)**2
+        cirleCoeffs = ((c*2*bd.pi*gme.freqs[0,n])*(self.sig/self.a)*(phc.layers[0].eps_b-1)/2)**2
 
         #compute the final result
         alpha = bd.real(cirleCoeffs*bd.sum(intigral)*(phc.layers[0].d*self.a*10**-9)**2)
@@ -203,11 +203,11 @@ class Backscatter(Cost):
         return(alpha*266*1E-9) #this puts it in units of a^-1
     
     
-    def cost(self,gme,phc,n,k):
+    def cost(self,gme,phc,n):
         """
         returns the cost associated with the backscattering
         """
-        alpha = self.comp_backscatter(gme,phc,n,k)
+        alpha = bd.log10(self.comp_backscatter(gme,phc,n))
 
         return(alpha)
     
