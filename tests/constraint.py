@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import jax.numpy as jnp
 JaxGME.set_backend('jax')
 import time
-#%%
+
 def W1Vars(NyChange=3,ra=.3):
     vars = jnp.zeros((3,NyChange*2))
     vars = vars.at[2,:].set(ra)
@@ -26,14 +26,15 @@ def W1Vars(NyChange=3,ra=.3):
         vars = vars.at[1,i].set(iy*jnp.sqrt(3)/2)
 
     vars = vars.flatten()
-    print(vars)
     return(vars)
 #%%
 vars = W1Vars()
 #%%
-manager = ConstraintManager(vars,numberHoles=3)
+manager = ConstraintManager(x0=vars,numberHoles=3)
 
-manager.inside_unit_cell('Inside')
-manager.min_rad('minimumRadius',.1)
-
+#manager.add_inside_unit_cell('Inside')
+#manager.add_min_rad('minimumRadius',.1)
+manager.add_min_dist('name',.1,3,W1Vars(NyChange=3+3))
 # %%
+manager.constraintsDisc
+#%%
