@@ -19,10 +19,12 @@ class Cost(object):
         self.a = a
 
 
-    def print_params(self):
+    def __str__(self):
         """Print the class parameters."""
+        out = ""
         for key, value in self.__dict__.items():
-            print(f"{key}: {value}")
+            out += f"{key}: {value}\n"
+        return(out)
     
     def return_params(self):
         return self.__dict__.copy()

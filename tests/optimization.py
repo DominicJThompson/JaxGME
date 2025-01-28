@@ -78,7 +78,8 @@ cost = JaxGME.Backscatter()
 gmeParams = {'verbose':False,'numeig':21,'compute_im':False,'kpoints':jnp.array([[jnp.pi*.75],[0]])}
 vars = W1Vars()
 minim = JaxGME.BFGS(vars,W1,cost,mode=20,maxiter=2,return_all=True,gmeParams=gmeParams)
-
+print(minim)
+#%%
 minim.minimize()
 #%%
 minim.save('media/test.json')

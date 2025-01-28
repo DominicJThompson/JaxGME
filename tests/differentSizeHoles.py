@@ -332,3 +332,36 @@ plt.title(f"Min of {round(alphaTrue[5,10],10)}, ng of {round(ngs[5,10],2)}")
 plt.legend()
 plt.show()
 
+#%%
+import matplotlib.pyplot as plt
+from matplotlib.patches import Circle
+
+# Create a figure and axis
+fig, ax = plt.subplots()
+
+# Define the circle's center and radius
+center = (0.5, 0.5)
+radius = 0.2
+
+# Create the circle with a dashed edge
+circle = Circle(center, radius, edgecolor='red', facecolor='none', linestyle='--', linewidth=2)
+
+# Add the circle to the plot
+ax.add_patch(circle)
+
+# Plot other data with different scales
+ax.plot([0, 1], [0, 10], label="Line")  # Example line with different y-axis scale
+
+# Set the aspect ratio to ignore data scaling
+ax.set_aspect('equal')  # Keeps the circle a true circle
+
+# Set limits and labels
+ax.set_xlim(0, 1)
+ax.set_ylim(0, 10)
+plt.legend()
+plt.grid(True)
+
+# Show the plot
+plt.show()
+
+# %%

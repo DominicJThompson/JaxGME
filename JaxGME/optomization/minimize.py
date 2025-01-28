@@ -39,17 +39,19 @@ class Minimize(object):
         self.result = None
         
 
-    def print_params(self):
+    def __str__(self):
         """Print the class parameters."""
+        out = ""
         for key, value in self.__dict__.items():
             if key == 'crystal':
-                print(f"{key}: {value.__name__}")
+                out += f"{key}: {value.__name__}\n"
             elif key == 'cost':
-                print('-----cost-----')
-                self.cost.print_params()
-                print('-----cost-----')
+                out += '-----cost-----\n'
+                out += str(self.cost)
+                out += '-----cost-----\n'
             else:
-                print(f"{key}: {value}")
+                out += f"{key}: {value}\n"
+        return(out)
 
     def objective(self,vars):
         """
