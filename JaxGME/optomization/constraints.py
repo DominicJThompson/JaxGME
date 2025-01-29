@@ -1,4 +1,7 @@
 from JaxGME.backend import backend as bd
+import jax
+import JaxGME
+
 
 class ConstraintManager(object):
     """
@@ -23,10 +26,6 @@ class ConstraintManager(object):
         #{'name': {'discription': short discription, 'args': any relevent arguments}},..}
         #this is for saving purposes
         self.constraintsDisc = {}
-
-        #this contains expensive computations from the objective function to speed up compuation
-        #{'name':computation,..}
-        self.cashe = {}
 
         #defualt arguments from optimizer and initialized that need to be set
         self.defaultArgs = {'x0':x0,
@@ -62,14 +61,16 @@ class ConstraintManager(object):
         Wrap the constraint function to pass updated arguments dynamically.
         """
         def wrapped(x):
-            return func(x, *args)
+            return float(func(x, *args))
         return wrapped
-
-    def update_cache(self, key, value):
+    
+    def _wrap_grad(self, func, args):
         """
-        Update the shared cache with a key-value pair.
+        Wraps the gradient of the constraints
         """
-        self.cache[key] = value
+        def wrapped(x):
+            return func(x,*args).tolist()
+        return wrapped
 
     #------------default constraints to add-------------
         
@@ -79,11 +80,19 @@ class ConstraintManager(object):
         Assume xs of shape [*xs,*ys,*rs]
         """
         for i in range((2*self.defaultArgs['numberHoles'])):
-            #for each value that isnt a radius
-            self.constraints[name+str(i)] = {
+            #for each x value
+            self.constraints[name+'_x_'+str(i)] = {
                 'type':'ineq',
-                'fun': self._wrap_function(self._inside_unit_cell,(i,))
+                'fun': self._wrap_function(self._inside_unit_cell,(i,)),
+                'jac': self._wrap_grad(jax.grad(self._inside_unit_cell),(i,))
             }
+            #for each y value
+            self.constraints[name+'_y_'+str(i)] = {
+                'type':'ineq',
+                'fun': self._wrap_function(self._inside_unit_cell,(i+2*self.defaultArgs['numberHoles'],)),
+                'jac': self._wrap_grad(jax.grad(self._inside_unit_cell),(i+2*self.defaultArgs['numberHoles'],))
+            }
+
         self.constraintsDisc[name] = {
             'discription': """Keeps the x and y values bound in [-.5,.5] so they stay in the unit cell""",
             'args':{}
@@ -94,11 +103,12 @@ class ConstraintManager(object):
         Enforces a minimum radius that the holes may not go below
         Assume xs of shape [*xs,*ys,*rs]
         """
-        for i in range(self.defaultArgs['numberHoles']):
+        for i in range(self.defaultArgs['numberHoles']*2):
             #for each radius
             self.constraints[name+str(i)] = {
                 'type': 'ineq',
-                'fun': self._wrap_function(self._min_rad,(i+self.defaultArgs['numberHoles']*2,minRad,))
+                'fun': self._wrap_function(self._min_rad,(i+self.defaultArgs['numberHoles']*4,minRad,)),
+                'jac': self._wrap_grad(jax.grad(self._min_rad),(i+self.defaultArgs['numberHoles']*4,minRad,))
             }
         self.constraintsDisc[name] = {
             'discription':  """Enforces the minimum radius""",
@@ -110,11 +120,12 @@ class ConstraintManager(object):
         Enforces a maximum radius that the holes may not go above
         Assume xs of shape [*xs,*ys,*rs]
         """
-        for i in range(self.defaultArgs['numberHoles']):
+        for i in range(self.defaultArgs['numberHoles']*2):
             #for each radius
             self.constraints[name+str(i)] = {
                 'type': 'ineq',
-                'fun': self._wrap_function(self._max_rad,(i+self.defaultArgs['numberHoles']*2,maxRad,))
+                'fun': self._wrap_function(self._max_rad,(i+self.defaultArgs['numberHoles']*4,maxRad,)),
+                'jac': self._wrap_grad(jax.grad(self._max_rad),(i+self.defaultArgs['numberHoles']*4,maxRad,))
             }
         self.constraintsDisc[name] = {
             'discription':  """Enforces the maximum radius""",
@@ -139,11 +150,30 @@ class ConstraintManager(object):
                     continue
                 self.constraints[name+str(i)+'_'+str(j+1)] = {
                     'type': 'ineq',
-                    'fun': self._wrap_function(self._min_dist,(minDist,i,j+1,buffer,varsPadded))
+                    'fun': self._wrap_function(self._min_dist,(minDist,i,j+1,buffer,varsPadded)),
+                    'jac': self._wrap_grad(jax.grad(self._min_dist),(minDist,i,j+1,buffer,varsPadded))
                 }
         self.constraintsDisc[name] = {
             'discription': """Enforces a minimum radius between the holes within a buffer number of holes""",
             'args': {'minDist': minDist, 'buffer': buffer}
+        }
+
+    def add_freq_bound(self,name,minFreq,maxFreq):
+        """
+        Enforces the frequency beging bound within the region [minFreq,maxFreq]
+
+        Args:
+            minFreq: minimum alowable frequency
+            maxFreq: maximum alowable frequency
+        """
+        self.constraints[name] = {
+            'type': 'ineq',
+            'fun': self._wrap_function(self._freq_bound,(minFreq,maxFreq,)),
+            'jac': self._wrap_grad(jax.grad(self._freq_bound),(minFreq,maxFreq,))
+        }
+        self.constraintsDisc[name] = {
+            'discription': """Enforces the frequency to be within the given frequency range""",
+            'args': {'minFreq': minFreq, 'maxFreq': maxFreq}
         }
 
 
@@ -184,5 +214,17 @@ class ConstraintManager(object):
 
         return(minDist-dist)
 
+    def _freq_bound(self,x,minFreq,maxFreq):
 
-    
+        #calculates the gme and then ensure the frequency is between the two values
+
+        phc = self.defaultArgs['crystal'](vars=x,**self.defaultArgs['phcParams'])
+        gme = JaxGME.GuidedModeExp(phc,self.defaultArgs['gmax'])
+        gme.run(**self.defaultArgs['gmeParams'])
+        
+        freq = gme.freqs[0,self.defaultArgs['mode']]
+
+        return(bd.abs(freq-(minFreq+maxFreq)/2)-(maxFreq-minFreq)/2)
+
+
+
