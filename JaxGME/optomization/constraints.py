@@ -175,8 +175,43 @@ class ConstraintManager(object):
             'discription': """Enforces the frequency to be within the given frequency range""",
             'args': {'minFreq': minFreq, 'maxFreq': maxFreq}
         }
+    
+    def add_ng_bound(self,name,minNg,maxNg,slope='down'):
+        """
+        Enforces the ng beging bound within the region [minNg,maxNg], with the correct slope
 
+        Args:
+            minNg: minimum alowable group index
+            maxNg: maximum alowable group index
+            slope: either 'up' or 'down' depending on the desired slope
+        """
+        self.constraints[name] = {
+            'type': 'ineq',
+            'fun': self._wrap_function(self._ng_bound,(minNg,maxNg,slope,)),
+            'jac': self._wrap_grad(jax.grad(self._ng_bound),(minNg,maxNg,slope,))
+        }
+        self.constraintsDisc[name] = {
+            'discription': """Enforces the group index to be within the given range with the correct slope""",
+            'args': {'minNg': minNg, 'maxNg': maxNg, 'slope': slope}
+        }
 
+    def add_monotonic_band(self,name,ks,slope='down'):
+        """
+        forces the band to be monotonic in the selected ks
+
+        Args:
+            ks: the kx values that we are checking
+            slope: either 'up' or 'down' depending on the inital band
+        """
+        self.constraints[name] = {
+            'type': 'ineq',
+            'fun': self._wrap_function(self._manotonic_band,(ks,slope,)),
+            'jac': self._wrap_grad(jax.jacobian(self._monatonic_band),(ks,slope,))
+        }
+        self.constraintsDisc[name] = {
+            'discription': """Enforces the band to be monatonic""",
+            'args': {'kx values': ks, 'slope': slope}
+        }
     
     #----------functions that define default constraints----------
         
@@ -216,8 +251,7 @@ class ConstraintManager(object):
 
     def _freq_bound(self,x,minFreq,maxFreq):
 
-        #calculates the gme and then ensure the frequency is between the two values
-
+        #calculates the gme and then ensure the frequency is between the two value
         phc = self.defaultArgs['crystal'](vars=x,**self.defaultArgs['phcParams'])
         gme = JaxGME.GuidedModeExp(phc,self.defaultArgs['gmax'])
         gme.run(**self.defaultArgs['gmeParams'])
@@ -226,5 +260,30 @@ class ConstraintManager(object):
 
         return(bd.abs(freq-(minFreq+maxFreq)/2)-(maxFreq-minFreq)/2)
 
+    def _ng_bound(self,x,minNg,maxNg,slope):
 
+        #caclculate the gme and then ensure the gropu index is within the range
+        phc = self.defaultArgs['crystal'](vars=x,**self.defaultArgs['phcParams'])
+        gme = JaxGME.GuidedModeExp(phc,self.defaultArgs['gmax'])
+        gme.run(**self.defaultArgs['gmeParams'])
 
+        Efield,_,_ = gme.get_field_xy('E',0,self.defaultArgs['mode'],phc.layers[0].d/2,Nx=60,Ny=125)
+        Hfield,_,_ = gme.get_field_xy('H',0,self.defaultArgs['mode'],phc.layers[0].d/2,Nx=60,Ny=125)
+        Efield = bd.array([[Efield['x']],[Efield['y']],[Efield['z']]])
+        Hfield = bd.array([[Hfield['x']],[Hfield['y']],[Hfield['z']]])
+
+        #adjust for the slope we want
+        if slope=='up':
+            c = 1
+        elif slope=='down':
+            c = -1
+        else:
+            raise ValueError("slope within ng bound must be either 'up' or 'down'")
+        
+        #calculate ng, accounting for slope
+        ng = -c*1/(bd.sum(bd.real(bd.cross(bd.conj(Efield),Hfield,axis=0)))*phc.lattice.a2[1]/60/125*phc.layers[0].d)
+        
+        return(bd.abs(ng-(minNg+maxNg)/2)-(maxNg-minNg)/2)
+    
+    def _monotonic_band(self,x,ks,slope): #needs implementation
+        return()

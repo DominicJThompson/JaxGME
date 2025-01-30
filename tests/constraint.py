@@ -66,7 +66,6 @@ def W1Vars(NyChange=3,ra=.3):
 #%%
 vars = W1Vars()
 
-#%%
 gmeParams = {'verbose':False,'numeig':21,'compute_im':False,'kpoints':jnp.array([[jnp.pi*.75],[0]])}
 phcParams = {}
 
@@ -79,13 +78,15 @@ manager = ConstraintManager(x0=vars,
                             mode=20)
 
 manager.add_inside_unit_cell('Inside')
-manager.add_min_rad('minimumRadius',.2)
-manager.add_min_dist('minDist',.1,3,W1Vars(NyChange=3+3))
+#manager.add_min_rad('minimumRadius',.2)
+#manager.add_min_dist('minDist',.1,3,W1Vars(NyChange=3+3))
 manager.add_freq_bound('freqBound',.1,1)
+manager.add_ng_bound('ngBound',1,10)
 
-# %%
-name = 'freqBound'
-#print(manager.constraints[name]['fun'](vars))
+manager.constraints
+#%%
+name = 'ngBound'
+print(manager.constraints[name]['fun'](vars))
 grad = manager.constraints[name]['jac'](vars)
 #%%
 manager.constraints

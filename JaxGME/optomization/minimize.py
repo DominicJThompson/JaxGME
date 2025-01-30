@@ -11,7 +11,7 @@ class Minimize(object):
     """
     Class that defines the optomization method that we will be using.
     """
-    def __init__(self, x0, crystal, cost, mode=0, constraints='None', gmax=3.001, gmeParams={}, phcParams={}, tol=None):
+    def __init__(self, x0, crystal, cost, mode=0, constraints=None, gmax=3.001, gmeParams={}, phcParams={}, tol=None):
         """
         Initalizes the class with all relevent general perameters
 
@@ -37,6 +37,8 @@ class Minimize(object):
         self.phcParams = phcParams
         self.tol = tol
         self.result = None
+
+        self.cache = {}
         
 
     def __str__(self):
@@ -164,5 +166,29 @@ class BFGS(Minimize):
         self.time = time.time()-t1
 
 
+class ConstrTest(Minimize):
+    def __init__(self, x0, crystal, cost, disp=False, maxiter=None, gtol=1e-5, return_all=False, **kwargs):
+        """
+        Defines all of the inputs needed to run optomizations with BFGS optomization class.
+        Default values are the defaults from scipy
 
+        Args: 
+            disp : Bool, set to True to print convergance messages
+            maxiter : Int or None, The maximimum number of iterations that will be run
+            gtol : Float, the tolerance on the gradent to stop optoimization
+            return_all : Bool, returns all intermediate steps at the end of optimization
+        """
+        super().__init__(x0,crystal,cost,**kwargs)
+        self.disp = disp
+        self.maxiter = maxiter
+        self.gtol = gtol
+        self.return_all = return_all
 
+    def minimize(self):
+        
+        for name,disc in self.constraints.constraintsDisc.items():
+            if disc.get('requiresCache',False):
+                self.constraints.constraints[name] = self._cache_to_constraints(self.constraints.constraints[name])
+        
+        self.cache = {'hello':1}
+        self.constraints.constraints[name]['fun'](self.x0)
