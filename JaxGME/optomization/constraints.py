@@ -64,6 +64,15 @@ class ConstraintManager(object):
             return float(func(x, *args))
         return wrapped
     
+    def _wrap_function_vector_out(self, func, args):
+        """
+        Wrap the constraint function to pass updated arguments dynamically.
+        This implementation for functions that output vectors
+        """
+        def wrapped(x):
+            return func(x, *args).tolist()
+        return wrapped
+    
     def _wrap_grad(self, func, args):
         """
         Wraps the gradient of the constraints
@@ -195,22 +204,96 @@ class ConstraintManager(object):
             'args': {'minNg': minNg, 'maxNg': maxNg, 'slope': slope}
         }
 
-    def add_monotonic_band(self,name,ks,slope='down'):
+    def add_monotonic_band(self,name,ksBefore,ksAfter,slope='down'):
         """
         forces the band to be monotonic in the selected ks
 
         Args:
-            ks: the kx values that we are checking
+            ksBefore: a list of k values before the optomized kpoint
+            ksAfter: a list of k values after the optomized kpoint
             slope: either 'up' or 'down' depending on the inital band
         """
         self.constraints[name] = {
             'type': 'ineq',
-            'fun': self._wrap_function(self._manotonic_band,(ks,slope,)),
-            'jac': self._wrap_grad(jax.jacobian(self._monatonic_band),(ks,slope,))
+            'fun': self._wrap_function_vector_out(self._monotonic_band,(ksBefore,ksAfter,slope,)),
+            'jac': self._wrap_grad(jax.jacobian(self._monotonic_band),(ksBefore,ksAfter,slope,))
         }
         self.constraintsDisc[name] = {
             'discription': """Enforces the band to be monatonic""",
-            'args': {'kx values': ks, 'slope': slope}
+            'args': {'ksBefore': ksBefore, 'ksAfter': ksAfter, 'slope': slope}
+        }
+
+    def add_bandwidth(self,name,ksBefore,ksAfter,bandwidth):
+        """
+        Forces modes above and below to fall outside of the given bandwidth
+
+        Args: 
+            ksBefore: a list of k values before the optomized kpoint
+            ksAfter: a list of k values after the optomized kpoint
+            bandwidth: The total bandwidth from the optomized mode, half on each side
+        """
+        self.constraints[name] = {
+            'type': 'ineq',
+            'fun': self._wrap_function_vector_out(self._bandwidth,(ksBefore,ksAfter,bandwidth)),
+            'jac': self._wrap_grad(jax.jacobian(self._bandwidth),(ksBefore,ksAfter,bandwidth))
+        }
+        self.constraintsDisc[name] = {
+            'discription': """Enforces a specific bandwidth that the bands above and below must obey, half the given bandwidth on each side """,
+            'args': {'ksBefore': ksBefore, 'ksAfter': ksAfter, 'bandwidth': bandwidth}
+        }
+        
+    #def add_ng_others() #ensures that the ngs of the other k points are the correct sign near the optomized point
+    def add_ng_others(self,name,ksBefore,ksAfter,slope='down'):
+        """
+        Force the group index of the modes coming before and after to be the same as the slope, 
+        helps ensure monotonic
+
+        Args: 
+            ksBefore: a list of k values before the optomized kpoint
+            ksAfter: a list of k values after the optomized kpoint
+            slope: either 'up' or 'down' depending on the inital band
+        """
+        ks = bd.hstack((ksBefore,ksAfter))
+        for i,k in enumerate(ks):
+            self.constraints[name+str(i)] = {
+                'type': 'ineq',
+                'fun': self._wrap_function(self._ng_others,(k,slope)),
+                'jac': self._wrap_grad(jax.grad(self._ng_others),(k,slope))
+            }
+        self.constraintsDisc[name] = {
+            'discription': """Enforces the group index of the neighboring modes to be the same slope, helps enforce monotonic""",
+            'args': {'ksBefore': ksBefore, 'ksAfter': ksAfter, 'slope': slope}
+        }
+    
+    #This is a cheep version of the cache that adds all the constraints that require GME calculation
+    #Currently missing ng constraints to prevent loop issues, need full jax backend implementaion
+    def add_gme_constrs(self,name,minFreq=0,maxFreq=100,minNg=1,maxNg=100,ksBefore=[0],ksAfter=[bd.pi],bandwidth=.01,slope='down'):
+        """
+        implements the folowing constraints:
+        freq_bound,
+        ng_bound,
+        monotonic_band,
+        bandwidth
+
+        Args:
+            minFreq: minimum alowable frequency
+            maxFreq: maximum alowable frequency
+            minNg: minimum alowable group index
+            maxNg: maximum alowable group index
+            ksBefore: a list of k values before the optomized kpoint
+            ksAfter: a list of k values after the optomized kpoint
+            bandwidth: The total bandwidth from the optomized mode, half on each side
+            slope: either 'up' or 'down' depending on the inital band
+        """
+
+        self.constraints[name] = {
+            'type': 'ineq',
+            'fun': self._wrap_function_vector_out(self._gme_constrs,(minFreq,maxFreq,minNg,maxNg,ksBefore,ksAfter,bandwidth,slope)),
+            'jac': self._wrap_grad(jax.jacobian(self._gme_constrs),(minFreq,maxFreq,minNg,maxNg,ksBefore,ksAfter,bandwidth,slope))
+        }
+        self.constraintsDisc[name] = {
+            'discription': """implements the folowing constraints: freq_bound, ng_bound, monotonic_band, bandwidth """,
+            'args': {'minFreq': minFreq, 'maxFreq': maxFreq,'minNg': minNg, 'maxNg': maxNg,'ksBefore': ksBefore, 'ksAfter': ksAfter, 'bandwidth': bandwidth, 'slope': slope}
         }
     
     #----------functions that define default constraints----------
@@ -285,5 +368,122 @@ class ConstraintManager(object):
         
         return(bd.abs(ng-(minNg+maxNg)/2)-(maxNg-minNg)/2)
     
-    def _monotonic_band(self,x,ks,slope): #needs implementation
-        return()
+    def _monotonic_band(self,x,ksBefore,ksAfter,slope):
+
+        #caclculate the gme and then ensure the gropu index is within the range
+        phc = self.defaultArgs['crystal'](vars=x,**self.defaultArgs['phcParams'])
+        gme = JaxGME.GuidedModeExp(phc,self.defaultArgs['gmax'])
+
+        #set up kpoints and run gme
+        gmeParams = self.defaultArgs['gmeParams'].copy()
+        kpointsBefore = bd.vstack((bd.array(ksBefore),bd.zeros(len(ksBefore))))
+        kpointsAfter = bd.vstack((bd.array(ksAfter),bd.zeros(len(ksAfter))))
+        kpoints = bd.hstack((kpointsBefore,gmeParams['kpoints'],kpointsAfter))
+        gmeParams['kpoints'] = kpoints
+        gme.run(**gmeParams)
+
+        #adjust for the slope we want
+        if slope=='up':
+            c = 1
+        elif slope=='down':
+            c = -1
+        else:
+            raise ValueError("slope within monotonic must be either 'up' or 'down'")
+
+        return(c*(gme.freqs[:-1,self.defaultArgs['mode']]-gme.freqs[1:,self.defaultArgs['mode']]))
+        
+    def _bandwidth(self,x,ksBefore,ksAfter,bandwidth):
+
+        phc = self.defaultArgs['crystal'](vars=x,**self.defaultArgs['phcParams'])
+        gme = JaxGME.GuidedModeExp(phc,self.defaultArgs['gmax'])
+
+        #set up kpoints and run gme
+        gmeParams = self.defaultArgs['gmeParams'].copy()
+        kpointsBefore = bd.vstack((bd.array(ksBefore),bd.zeros(len(ksBefore))))
+        kpointsAfter = bd.vstack((bd.array(ksAfter),bd.zeros(len(ksAfter))))
+        kpoints = bd.hstack((kpointsBefore,gmeParams['kpoints'],kpointsAfter))
+        gmeParams['kpoints'] = kpoints
+        gmeParams['numeig'] = self.defaultArgs['gmeParams']['numeig']+1
+        gme.run(**gmeParams)
+
+        #freqs above
+        optFreq = gme.freqs[len(ksBefore),self.defaultArgs['mode']]
+        above = bandwidth/2+optFreq-gme.freqs[:,self.defaultArgs['mode']+1]
+
+        #freqs below
+        below = bandwidth/2-optFreq+gme.freqs[:,self.defaultArgs['mode']-1]
+
+        return(bd.hstack((above,below)))
+    
+    def _ng_others(self,x,k,slope):
+
+        phc = self.defaultArgs['crystal'](vars=x,**self.defaultArgs['phcParams'])
+        gme = JaxGME.GuidedModeExp(phc,self.defaultArgs['gmax'])
+
+        #set up kpoints and run gme
+        gmeParams = self.defaultArgs['gmeParams'].copy()
+        kpoints = bd.vstack((bd.array(k),bd.zeros(1)))
+        gmeParams['kpoints'] = kpoints
+        gme.run(**gmeParams)
+
+        #adjust for the slope we want
+        if slope=='up':
+            c = 1
+        elif slope=='down':
+            c = -1
+        else:
+            raise ValueError("slope within monotonic must be either 'up' or 'down'")
+
+        #calculate the ng values
+        Efield,_,_ = gme.get_field_xy('E',0,self.defaultArgs['mode'],phc.layers[0].d/2,Nx=60,Ny=125)
+        Hfield,_,_ = gme.get_field_xy('H',0,self.defaultArgs['mode'],phc.layers[0].d/2,Nx=60,Ny=125)
+        Efield = bd.array([[Efield['x']],[Efield['y']],[Efield['z']]])
+        Hfield = bd.array([[Hfield['x']],[Hfield['y']],[Hfield['z']]])
+        ng = c*1/(bd.sum(bd.real(bd.cross(bd.conj(Efield),Hfield,axis=0)))*phc.lattice.a2[1]/60/125*phc.layers[0].d)
+
+        return(ng)
+    
+    def _gme_constrs(self,x,minFreq,maxFreq,minNg,maxNg,ksBefore,ksAfter,bandwidth,slope):
+
+        #start by setting up GME and running it for all points 
+        phc = self.defaultArgs['crystal'](vars=x,**self.defaultArgs['phcParams'])
+        gme = JaxGME.GuidedModeExp(phc,self.defaultArgs['gmax'])
+
+        #set up kpoints and run gme
+        gmeParams = self.defaultArgs['gmeParams'].copy()
+        kpointsBefore = bd.vstack((bd.array(ksBefore),bd.zeros(len(ksBefore))))
+        kpointsAfter = bd.vstack((bd.array(ksAfter),bd.zeros(len(ksAfter))))
+        kpoints = bd.hstack((kpointsBefore,gmeParams['kpoints'],kpointsAfter))
+        gmeParams['kpoints'] = kpoints
+        gmeParams['numeig'] = self.defaultArgs['gmeParams']['numeig']+1
+        gme.run(**gmeParams)
+
+        #get adjustment for slope that will be used repeatedly
+        if slope=='up':
+            c = 1
+        elif slope=='down':
+            c = -1
+        else:
+            raise ValueError("slope within ng bound must be either 'up' or 'down'")
+
+        #get frequency bound constraint
+        freq = gme.freqs[0,self.defaultArgs['mode']]
+        boundF = bd.abs(freq-(minFreq+maxFreq)/2)-(maxFreq-minFreq)/2
+
+        #get the ng bound constraint
+        Efield,_,_ = gme.get_field_xy('E',len(ksBefore),self.defaultArgs['mode'],phc.layers[0].d/2,Nx=60,Ny=125)
+        Hfield,_,_ = gme.get_field_xy('H',len(ksBefore),self.defaultArgs['mode'],phc.layers[0].d/2,Nx=60,Ny=125)
+        Efield = bd.array([[Efield['x']],[Efield['y']],[Efield['z']]])
+        Hfield = bd.array([[Hfield['x']],[Hfield['y']],[Hfield['z']]])
+        ng = -c*1/(bd.sum(bd.real(bd.cross(bd.conj(Efield),Hfield,axis=0)))*phc.lattice.a2[1]/60/125*phc.layers[0].d)
+        boundNG = bd.abs(ng-(minNg+maxNg)/2)-(maxNg-minNg)/2
+
+        #monotonic constraint
+        monotonic = c*(gme.freqs[:-1,self.defaultArgs['mode']]-gme.freqs[1:,self.defaultArgs['mode']])
+
+        #bandwidth constraint
+        above = bandwidth/2+freq-gme.freqs[:,self.defaultArgs['mode']+1]
+        below = bandwidth/2-freq+gme.freqs[:,self.defaultArgs['mode']-1]
+
+        #combine constraints and return
+        return(bd.hstack((boundF,boundNG,monotonic,above,below)))

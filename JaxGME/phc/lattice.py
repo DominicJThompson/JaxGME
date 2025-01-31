@@ -98,13 +98,13 @@ class Lattice(object):
         elif np.array(periods).shape == 1:
             periods = periods[0] * np.ones((2, ))
 
-        ymax = np.abs(max([self.a1[1], self.a2[1]])) * periods[1] / 2
+        ymax = bd.abs(bd.maximum(self.a1[1], self.a2[1])) * periods[1] / 2
         ymin = -ymax
 
-        xmax = np.abs(max([self.a1[0], self.a2[0]])) * periods[0] / 2
+        xmax = bd.abs(bd.maximum(self.a1[0], self.a2[0])) * periods[0] / 2
         xmin = -xmax
 
-        return (np.linspace(xmin, xmax, Nx), np.linspace(ymin, ymax, Ny))
+        return (bd.linspace(xmin, xmax, Nx), bd.linspace(ymin, ymax, Ny))
 
     def bz_path(self, pts, ns, symm_g=[np.pi, 0]):
         """

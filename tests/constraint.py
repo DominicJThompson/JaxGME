@@ -77,19 +77,22 @@ manager = ConstraintManager(x0=vars,
                             gmax=4,
                             mode=20)
 
-manager.add_inside_unit_cell('Inside')
+#manager.add_inside_unit_cell('Inside')
 #manager.add_min_rad('minimumRadius',.2)
 #manager.add_min_dist('minDist',.1,3,W1Vars(NyChange=3+3))
-manager.add_freq_bound('freqBound',.1,1)
-manager.add_ng_bound('ngBound',1,10)
-
-manager.constraints
+#manager.add_freq_bound('freqBound',.1,1)
+#manager.add_ng_bound('ngBound',1,10)
+#manager.add_monotonic_band('monotomicBand',[jnp.pi*.5],[jnp.pi],'down')
+#manager.add_bandwidth('bandwidth',[jnp.pi*.5],[jnp.pi],.1)
+#manager.add_ng_others('ngOthers',[jnp.pi*.5],[jnp.pi],'down')
+manager.add_gme_constrs('gme_constrs',minFreq=.1,maxFreq=1,minNg=10,maxNg=20,ksBefore=[jnp.pi*.5],ksAfter=[jnp.pi],bandwidth=.01,slope='down')
+manager.constraintsDisc
 #%%
-name = 'ngBound'
+name = 'gme_constrs'
 print(manager.constraints[name]['fun'](vars))
 grad = manager.constraints[name]['jac'](vars)
 #%%
-manager.constraints
+print(grad)
 # %%
 diff = 1e-5
 t1 = time.time()
@@ -109,4 +112,38 @@ print(fGrad)
 # %%
 plt.plot(grad)
 plt.plot(fGrad,'--')
+# %%
+def finite_difference_jacobian(f, x, eps=1e-5):
+    """
+    Compute the Jacobian of function f at x using forward differences.
+    
+    Parameters:
+    - f: Function that takes a vector x and returns a vector (shape (m,))
+    - x: Point at which to evaluate the Jacobian (shape (n,))
+    - eps: Small step size for finite differences
+    
+    Returns:
+    - J: Jacobian matrix of shape (m, n)
+    """
+    x = jnp.asarray(x, dtype=float)
+    m = len(f(x))  # Number of outputs
+    n = len(x)  # Number of inputs
+    J = jnp.zeros((m, n))
+    f_x = f(x)
+
+    for i in range(n):
+        x_forward = x.at[i].add(eps)
+        f_forward = f(x_forward)
+        
+        J = J.at[:, i].set((jnp.array(f_forward) - jnp.array(f_x)) / eps)  # Forward difference
+    
+    return J
+# %%
+fGrad = finite_difference_jacobian(manager.constraints[name]['fun'], vars, eps=1e-5)
+# %%
+plt.plot(jnp.abs(fGrad.T))
+plt.plot(jnp.abs(jnp.array(grad).T),'--')
+plt.ylim(0,.1)
+# %%
+plt.imshow(grad)
 # %%

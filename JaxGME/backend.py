@@ -179,6 +179,7 @@ if JAX_AVAILABLE:
         triu = staticmethod(jnp.triu)
         amax = staticmethod(jnp.amax)
         max = staticmethod(jnp.max)
+        maximum = staticmethod(jnp.maximum)
         min = staticmethod(jnp.min)
         sort = staticmethod(jnp.sort)
         argsort = staticmethod(jnp.argsort)
