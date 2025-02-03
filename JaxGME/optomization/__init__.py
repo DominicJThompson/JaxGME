@@ -1,3 +1,3 @@
 from .cost import Cost, Backscatter
-from .minimize import Minimize, BFGS, ConstrTest
+from .minimize import Minimize, BFGS, TrustConstr
 from .constraints import ConstraintManager

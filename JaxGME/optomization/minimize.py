@@ -11,7 +11,7 @@ class Minimize(object):
     """
     Class that defines the optomization method that we will be using.
     """
-    def __init__(self, x0, crystal, cost, mode=0, constraints=None, gmax=3.001, gmeParams={}, phcParams={}, tol=None):
+    def __init__(self, x0, crystal, cost, mode=0, constraints={}, gmax=3.001, gmeParams={}, phcParams={}, tol=None):
         """
         Initalizes the class with all relevent general perameters
 
@@ -97,8 +97,12 @@ class Minimize(object):
                     data[key] = value.__name__
                 elif isinstance(value, (JaxGME.Cost)):
                     data[key] = build_dict(value.__dict__)
+                elif isinstance(value,JaxGME.ConstraintManager):
+                    data[key] = value.constraintsDisc
                 elif isinstance(value, dict):
                     data[key] = build_dict(value)
+                elif all(isinstance(v, np.ndarray) for v in value):  
+                    data[key] = [v.tolist() for v in value]
                 else:
                     data[key] = value
             return(data)
@@ -166,29 +170,73 @@ class BFGS(Minimize):
         self.time = time.time()-t1
 
 
-class ConstrTest(Minimize):
-    def __init__(self, x0, crystal, cost, disp=False, maxiter=None, gtol=1e-5, return_all=False, **kwargs):
+class TrustConstr(Minimize):
+    """
+    Class that defines the trust trust-constr scipy method
+    """
+    def __init__(self, x0, crystal, cost, 
+                 gtol=1e-8, xtol=1e-8, barrier_tol=1e-8, 
+                 sparse_jacobian=None, initial_tr_radius=1, 
+                 initial_constr_penalty=1, initial_barrier_parameter=.1, 
+                 initial_barrier_tolerance=.1, factorization_method=None, 
+                 finite_diff_rel_step=None, maxiter=1000, verbose=0, 
+                 disp=False, **kwargs):
         """
-        Defines all of the inputs needed to run optomizations with BFGS optomization class.
-        Default values are the defaults from scipy
-
-        Args: 
-            disp : Bool, set to True to print convergance messages
-            maxiter : Int or None, The maximimum number of iterations that will be run
-            gtol : Float, the tolerance on the gradent to stop optoimization
-            return_all : Bool, returns all intermediate steps at the end of optimization
+        Defines the optomization routine for the trust-constr scipy class,
+        for a definition of arguments please look to scipy docs at:
+        https://docs.scipy.org/doc/scipy/reference/optimize.minimize-trustconstr.html
         """
         super().__init__(x0,crystal,cost,**kwargs)
-        self.disp = disp
-        self.maxiter = maxiter
         self.gtol = gtol
-        self.return_all = return_all
+        self.xtol = xtol
+        self.barrier_tol = barrier_tol
+        self.sparse_jacobian = sparse_jacobian
+        self.initial_tr_radius = initial_tr_radius
+        self.initial_constr_penalty = initial_constr_penalty
+        self.initial_barrier_parameter = initial_barrier_parameter
+        self.initial_barrier_tolerance = initial_barrier_tolerance
+        self.factorization_method = factorization_method
+        self.finite_diff_rel_step = finite_diff_rel_step
+        self.maxiter = maxiter
+        self.verbose = verbose
+        self.disp = disp
 
     def minimize(self):
         
-        for name,disc in self.constraints.constraintsDisc.items():
-            if disc.get('requiresCache',False):
-                self.constraints.constraints[name] = self._cache_to_constraints(self.constraints.constraints[name])
+        #define grad function
+        gradFunc = jax.grad(self.objective)
+
+        #scipy needs the gradient as a numpy array
+        def scipy_grad(var):
+            return(np.array(gradFunc(var)))
         
-        self.cache = {'hello':1}
-        self.constraints.constraints[name]['fun'](self.x0)
+        #get the inital value to save
+        self.inital_cost = self.objective(self.x0)
+
+        #run optomization
+        t1 = time.time()
+        result = minimize(fun=self.scipy_objective,    
+                          x0=self.x0,            
+                          jac=scipy_grad, 
+                          method='trust-constr',
+                          constraints=list(self.constraints.constraints.values()),
+                          bounds=self.constraints.build_bounds(),
+                          options={'gtol': self.gtol,
+                                   'xtol': self.xtol,
+                                   'barrier_tol': self.barrier_tol,
+                                   'sparse_jacobian': self.sparse_jacobian,
+                                   'initial_tr_radius': self.initial_tr_radius,
+                                   'initial_constr_penalty': self.initial_constr_penalty,
+                                   'initial_barrier_parameter': self.initial_barrier_parameter,
+                                   'initial_barrier_tolerance': self.initial_barrier_tolerance,
+                                   'factorization_method': self.factorization_method,
+                                   'finite_diff_rel_step':self.finite_diff_rel_step,
+                                   'maxiter': self.maxiter,
+                                   'verbose': self.verbose,
+                                   'disp': self.disp}
+                        )
+        
+        #save result
+        self.result = dict(result.items())
+        self.time = time.time()-t1
+

@@ -7,12 +7,23 @@ os.environ['JAX_ENABLE_X64'] = '1'
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import JaxGME
-import jax
 from JaxGME import ConstraintManager
+import jax
 import matplotlib.pyplot as plt
 import jax.numpy as jnp
 JaxGME.set_backend('jax')
 import time
+
+# Set global font sizes
+plt.rcParams.update({
+    'font.size': 14,        # General font size
+    'axes.titlesize': 18,   # Title font size
+    'axes.labelsize': 16,   # Axis label font size
+    'xtick.labelsize': 12,  # X-tick label font size
+    'ytick.labelsize': 12,  # Y-tick label font size
+    'legend.fontsize': 14   # Legend font size
+})
+
 
 def W1(vars=jnp.zeros((0,0)),NyChange=3,Ny=10,dslab=170/266,eps_slab=3.4638,ra=.3):
 
@@ -63,82 +74,32 @@ def W1Vars(NyChange=3,ra=.3):
 
     vars = vars.flatten()
     return(vars)
-#%%
-vars = W1Vars()
 
+cost = JaxGME.Backscatter()
 gmeParams = {'verbose':False,'numeig':21,'compute_im':False,'kpoints':jnp.array([[jnp.pi*.75],[0]])}
-phcParams = {}
-
+vars = W1Vars()
 manager = ConstraintManager(x0=vars,
                             numberHoles=3,
                             crystal=W1,
-                            phcParams=phcParams,
+                            phcParams={},
                             gmeParams=gmeParams,
-                            gmax=4,
+                            gmax=3.01,
                             mode=20)
 
-manager.add_inside_unit_cell('Inside')
-manager.add_min_rad('minimumRadius',.2)
+manager.add_inside_unit_cell('Inside',.5)
+manager.add_rad_bound('minimumRadius',.2,.4)
 manager.add_min_dist('minDist',.1,3,W1Vars(NyChange=3+3))
 manager.add_gme_constrs('gme_constrs',minFreq=.1,maxFreq=1,minNg=10,maxNg=20,ksBefore=[jnp.pi*.5],ksAfter=[jnp.pi],bandwidth=.01,slope='down')
-manager.constraintsDisc
-#%%
-name = 'gme_constrs'
-print(manager.constraints[name]['fun'](vars))
-grad = manager.constraints[name]['jac'](vars)
-#%%
-print(grad)
-# %%
-diff = 1e-5
-t1 = time.time()
-def finite_diff():
-    out = manager.constraints[name]['fun'](vars)
-    finite_grad = jnp.zeros(18)
-    for i in range(18):
-        print(i)
-        vars2 = W1Vars()
-        vars2 = vars2.at[i].add(diff)
-        finite_grad = finite_grad.at[i].set((manager.constraints[name]['fun'](vars2)-out)/diff)
-    return(finite_grad)
-fGrad = finite_diff()
-print(time.time()-t1)
-print(grad)
-print(fGrad)
-# %%
-plt.plot(grad)
-plt.plot(fGrad,'--')
-# %%
-def finite_difference_jacobian(f, x, eps=1e-5):
-    """
-    Compute the Jacobian of function f at x using forward differences.
-    
-    Parameters:
-    - f: Function that takes a vector x and returns a vector (shape (m,))
-    - x: Point at which to evaluate the Jacobian (shape (n,))
-    - eps: Small step size for finite differences
-    
-    Returns:
-    - J: Jacobian matrix of shape (m, n)
-    """
-    x = jnp.asarray(x, dtype=float)
-    m = len(f(x))  # Number of outputs
-    n = len(x)  # Number of inputs
-    J = jnp.zeros((m, n))
-    f_x = f(x)
 
-    for i in range(n):
-        x_forward = x.at[i].add(eps)
-        f_forward = f(x_forward)
-        
-        J = J.at[:, i].set((jnp.array(f_forward) - jnp.array(f_x)) / eps)  # Forward difference
-    
-    return J
+minim = JaxGME.TrustConstr(vars,W1,cost,mode=20,maxiter=10,gmeParams=gmeParams,constraints=manager,verbose=3)
+
 # %%
-fGrad = finite_difference_jacobian(manager.constraints[name]['fun'], vars, eps=1e-5)
+minim.minimize()
 # %%
-plt.plot(jnp.abs(fGrad.T))
-plt.plot(jnp.abs(jnp.array(grad).T),'--')
-plt.ylim(0,.1)
+#minim.save('media/constr.json')
+minim.result
 # %%
-plt.imshow(grad)
+print([0]*10)
+# %%
+print(manager.lowerBounds)
 # %%

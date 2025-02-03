@@ -1,6 +1,8 @@
 from JaxGME.backend import backend as bd
 import jax
 import JaxGME
+from scipy.optimize import Bounds
+import numpy as np
 
 
 class ConstraintManager(object):
@@ -21,6 +23,11 @@ class ConstraintManager(object):
         #{'name': {'type': 'ineq'/'eq', 'fun': constraint function, 'args': (tuple of args)},..}
         #the idea is to use list(self.constraints.values()) later to get scipy constraints
         self.constraints = {}
+
+        #this contains the lower and uppoer bounds for all the input variables, 
+        #these are used for rad limits and unit cell confinment
+        self.lowerBounds = np.ones(len(x0))*100
+        self.upperBounds = np.ones(len(x0))*-100
 
         #this contains the name and discription of the constraint:
         #{'name': {'discription': short discription, 'args': any relevent arguments}},..}
@@ -80,65 +87,40 @@ class ConstraintManager(object):
         def wrapped(x):
             return func(x,*args).tolist()
         return wrapped
+    
+    def build_bounds(self):
+        return(Bounds(self.lowerBounds,self.upperBounds))
 
     #------------default constraints to add-------------
         
-    def add_inside_unit_cell(self, name):
+    def add_inside_unit_cell(self, name, bound):
         """
-        Keep x and y values bound in box of [-.5,.5], assume
+        Keep x and y values bound in box of [-bound,bound], assume
         Assume xs of shape [*xs,*ys,*rs]
         """
-        for i in range((2*self.defaultArgs['numberHoles'])):
-            #for each x value
-            self.constraints[name+'_x_'+str(i)] = {
-                'type':'ineq',
-                'fun': self._wrap_function(self._inside_unit_cell,(i,)),
-                'jac': self._wrap_grad(jax.grad(self._inside_unit_cell),(i,))
-            }
-            #for each y value
-            self.constraints[name+'_y_'+str(i)] = {
-                'type':'ineq',
-                'fun': self._wrap_function(self._inside_unit_cell,(i+2*self.defaultArgs['numberHoles'],)),
-                'jac': self._wrap_grad(jax.grad(self._inside_unit_cell),(i+2*self.defaultArgs['numberHoles'],))
-            }
+        xyIndices = len(self.defaultArgs['x0'])//3*2
+        self.lowerBounds[:xyIndices] = self.defaultArgs['x0'][:xyIndices]-bound
+        self.upperBounds[:xyIndices] = self.defaultArgs['x0'][:xyIndices]+bound
 
         self.constraintsDisc[name] = {
             'discription': """Keeps the x and y values bound in [-.5,.5] so they stay in the unit cell""",
-            'args':{}
+            'args':{bound},
+            'type': 'bound'
         }
     
-    def add_min_rad(self,name,minRad):
+    def add_rad_bound(self,name,minRad,maxRad):
         """
-        Enforces a minimum radius that the holes may not go below
+        Enforces a min and max radius that the holes may not go below or above
         Assume xs of shape [*xs,*ys,*rs]
         """
-        for i in range(self.defaultArgs['numberHoles']*2):
-            #for each radius
-            self.constraints[name+str(i)] = {
-                'type': 'ineq',
-                'fun': self._wrap_function(self._min_rad,(i+self.defaultArgs['numberHoles']*4,minRad,)),
-                'jac': self._wrap_grad(jax.grad(self._min_rad),(i+self.defaultArgs['numberHoles']*4,minRad,))
-            }
+        xyIndices = len(self.defaultArgs['x0'])//3*2
+        self.lowerBounds[xyIndices:] = minRad
+        self.upperBounds[xyIndices:] = maxRad
+        
         self.constraintsDisc[name] = {
-            'discription':  """Enforces the minimum radius""",
-            'args': {'minRad': minRad}
-        }
-    
-    def add_max_rad(self,name,maxRad):
-        """
-        Enforces a maximum radius that the holes may not go above
-        Assume xs of shape [*xs,*ys,*rs]
-        """
-        for i in range(self.defaultArgs['numberHoles']*2):
-            #for each radius
-            self.constraints[name+str(i)] = {
-                'type': 'ineq',
-                'fun': self._wrap_function(self._max_rad,(i+self.defaultArgs['numberHoles']*4,maxRad,)),
-                'jac': self._wrap_grad(jax.grad(self._max_rad),(i+self.defaultArgs['numberHoles']*4,maxRad,))
-            }
-        self.constraintsDisc[name] = {
-            'discription':  """Enforces the maximum radius""",
-            'args': {'maxRad': maxRad}
+            'discription':  """Enforces the radius bounds""",
+            'args': {'minRad': minRad, 'maxRad': maxRad},
+            'type': 'bound'
         }
     
     def add_min_dist(self,name,minDist,buffer,varsPadded):
@@ -164,7 +146,8 @@ class ConstraintManager(object):
                 }
         self.constraintsDisc[name] = {
             'discription': """Enforces a minimum radius between the holes within a buffer number of holes""",
-            'args': {'minDist': minDist, 'buffer': buffer}
+            'args': {'minDist': minDist, 'buffer': buffer},
+            'type': 'constraint'
         }
 
     def add_freq_bound(self,name,minFreq,maxFreq):
@@ -182,7 +165,8 @@ class ConstraintManager(object):
         }
         self.constraintsDisc[name] = {
             'discription': """Enforces the frequency to be within the given frequency range""",
-            'args': {'minFreq': minFreq, 'maxFreq': maxFreq}
+            'args': {'minFreq': minFreq, 'maxFreq': maxFreq},
+            'type': 'constraint'
         }
     
     def add_ng_bound(self,name,minNg,maxNg,slope='down'):
@@ -201,7 +185,8 @@ class ConstraintManager(object):
         }
         self.constraintsDisc[name] = {
             'discription': """Enforces the group index to be within the given range with the correct slope""",
-            'args': {'minNg': minNg, 'maxNg': maxNg, 'slope': slope}
+            'args': {'minNg': minNg, 'maxNg': maxNg, 'slope': slope},
+            'type': 'constraint'
         }
 
     def add_monotonic_band(self,name,ksBefore,ksAfter,slope='down'):
@@ -220,7 +205,8 @@ class ConstraintManager(object):
         }
         self.constraintsDisc[name] = {
             'discription': """Enforces the band to be monatonic""",
-            'args': {'ksBefore': ksBefore, 'ksAfter': ksAfter, 'slope': slope}
+            'args': {'ksBefore': ksBefore, 'ksAfter': ksAfter, 'slope': slope},
+            'type': 'constraint'
         }
 
     def add_bandwidth(self,name,ksBefore,ksAfter,bandwidth):
@@ -239,7 +225,8 @@ class ConstraintManager(object):
         }
         self.constraintsDisc[name] = {
             'discription': """Enforces a specific bandwidth that the bands above and below must obey, half the given bandwidth on each side """,
-            'args': {'ksBefore': ksBefore, 'ksAfter': ksAfter, 'bandwidth': bandwidth}
+            'args': {'ksBefore': ksBefore, 'ksAfter': ksAfter, 'bandwidth': bandwidth},
+            'type': 'constraint'
         }
         
     #def add_ng_others() #ensures that the ngs of the other k points are the correct sign near the optomized point
@@ -262,7 +249,8 @@ class ConstraintManager(object):
             }
         self.constraintsDisc[name] = {
             'discription': """Enforces the group index of the neighboring modes to be the same slope, helps enforce monotonic""",
-            'args': {'ksBefore': ksBefore, 'ksAfter': ksAfter, 'slope': slope}
+            'args': {'ksBefore': ksBefore, 'ksAfter': ksAfter, 'slope': slope},
+            'type': 'constraint'
         }
     
     #This is a cheep version of the cache that adds all the constraints that require GME calculation
@@ -293,19 +281,11 @@ class ConstraintManager(object):
         }
         self.constraintsDisc[name] = {
             'discription': """implements the folowing constraints: freq_bound, ng_bound, monotonic_band, bandwidth """,
-            'args': {'minFreq': minFreq, 'maxFreq': maxFreq,'minNg': minNg, 'maxNg': maxNg,'ksBefore': ksBefore, 'ksAfter': ksAfter, 'bandwidth': bandwidth, 'slope': slope}
+            'args': {'minFreq': minFreq, 'maxFreq': maxFreq,'minNg': minNg, 'maxNg': maxNg,'ksBefore': ksBefore, 'ksAfter': ksAfter, 'bandwidth': bandwidth, 'slope': slope},
+            'type': 'constraint'
         }
     
     #----------functions that define default constraints----------
-        
-    def _inside_unit_cell(self,x,i):
-        return(-bd.abs(x[i]-self.defaultArgs['x0'][i]-.5))
-    
-    def _min_rad(self,x,i,minRad):
-        return(minRad-x[i])
-    
-    def _max_rad(self,x,i,maxRad):
-        return(x[i]-maxRad)
     
     def _min_dist(self,x,minDist,i,j,buffer,varsPadded):
         #i indicates the hole to look at

@@ -8,4 +8,4 @@ from .gme import GuidedModeExp
 from .gme.slab_modes import guided_modes, rad_modes
 from .backend import backend, set_backend
 
-from .optomization import Cost, Backscatter, BFGS, ConstrTest, ConstraintManager
+from .optomization import Cost, Backscatter, BFGS, TrustConstr, ConstraintManager
