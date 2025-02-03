@@ -39,8 +39,6 @@ class Minimize(object):
         self.phcParams = phcParams
         self.tol = tol
         self.result = None
-
-        self.cache = {}
         
 
     def __str__(self):
@@ -100,8 +98,10 @@ class Minimize(object):
         #builds the dict recersivly
         def build_dict(data):
             for key, value in data.items():
-                if isinstance(value,(bd.ndarray,list,np.ndarray)):
+                if isinstance(value,(bd.ndarray,np.ndarray)):
                     data[key] = bd.array(value).tolist()
+                elif isinstance(value,set):
+                    data[key] = list(value)
                 elif isinstance(value,types.FunctionType):
                     data[key] = value.__name__
                 elif isinstance(value, (JaxGME.Cost)):
@@ -286,4 +286,59 @@ class TrustConstr(Minimize):
         #save result
         self.result = dict(result.items())
         self.time = time.time()-t1
+
+
+class Adam(Minimize):
+    """
+    Runs the adam minimization routine
+    """
+
+    def __init__(self, x0, crystal, cost, beta1 = .9,
+                beta2 = .999, numiter = 100, alpha = .1,**kwargs):
+        """
+        Initiallizes the adam optomization method
+
+        Args: 
+            beta1: controls first momentum (default .9)
+            beta2: controls second momentum (default .999)
+            numIter: the maximum number of iterations it will run (default 100)
+        """
+
+        super().__init__(x0,crystal,cost,**kwargs)
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.numIter = numiter
+        self.alpha = alpha
+
+    def minimize(self):
+        "runs the minimization routine for adam"
+
+        #define grad function
+        gradFunc = jax.grad(self.objective)
+
+        #get the inital value to save
+        self.inital_cost = self.objective(self.x0)
+
+        #initialize variables for adam
+        m = np.zeros(len(self.x0))
+        v = np.zeros(len(self.x0))
+        vars = self.x0
+
+        for i in range(self.numIter):
+            
+            #get the derivative
+            g = gradFunc(vars)
+
+            #run the adam routine
+            m = self.beta1*m+(1-self.beta1)*g
+            v = self.beta2*v+(1-self.beta2)*(g**2)
+
+            #get the intermediate varibales 
+            mhat = m/(1-self.beta1**(i+1))
+            vhat = v/(1-self.beta2**(i+1))
+
+            #update variable
+            vars = vars-self.alpha*(mhat/(bd.sqrt(vhat)+1E-8))
+
+        
 

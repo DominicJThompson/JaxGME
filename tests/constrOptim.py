@@ -76,7 +76,9 @@ def W1Vars(NyChange=3,ra=.3):
     return(vars)
 
 cost = JaxGME.Backscatter()
-gmeParams = {'verbose':False,'numeig':21,'compute_im':False,'kpoints':jnp.array([[jnp.pi*.75],[0]])}
+ks = jnp.linspace(jnp.pi*.5,jnp.pi,25)
+
+gmeParams = {'verbose':False,'numeig':21,'compute_im':False,'kpoints':jnp.array([[int(ks[8])],[0]])}
 vars = W1Vars()
 manager = ConstraintManager(x0=vars,
                             numberHoles=3,
@@ -87,15 +89,18 @@ manager = ConstraintManager(x0=vars,
                             mode=20)
 
 manager.add_inside_unit_cell('Inside',.5)
-manager.add_rad_bound('minimumRadius',.2,.4)
-manager.add_min_dist('minDist',.1,3,W1Vars(NyChange=3+3))
-manager.add_gme_constrs('gme_constrs',minFreq=.1,maxFreq=1,minNg=10,maxNg=20,ksBefore=[jnp.pi*.5],ksAfter=[jnp.pi],bandwidth=.01,slope='down')
+manager.add_rad_bound('minimumRadius',27.5/266,.4)
+manager.add_min_dist('minDist',40/266,3,W1Vars(NyChange=3+3))
+manager.add_gme_constrs('gme_constrs',minFreq=.26,maxFreq=.28,minNg=6.8,maxNg=6.9,ksBefore=[float(ks[4]),float(ks[6])],ksAfter=[float(ks[14]),float(ks[20])],bandwidth=.005,slope='down')
 
-minim = JaxGME.TrustConstr(vars,W1,cost,mode=20,maxiter=10,gmeParams=gmeParams,constraints=manager,verbose=3,path='media/opt.json')
+minim = JaxGME.TrustConstr(vars,W1,cost,mode=20,maxiter=2,gmeParams=gmeParams,constraints=manager,verbose=3,path='media/opt.json')
 
 # %%
 minim.minimize()
 # %%
-minim.save('media/constr.json')
+minim.save('media/opt.json')
+#%%
+ks[4]
+# %%
 minim.result
-
+# %%
