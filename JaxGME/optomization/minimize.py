@@ -6,6 +6,8 @@ from scipy.optimize import minimize
 import time
 import json
 import types
+from collections.abc import Iterable
+
 
 class Minimize(object):
     """
@@ -88,6 +90,13 @@ class Minimize(object):
             file_path : the path the file should be stored at
         """
 
+        try:
+            with open(self.path, "r") as f:
+                savedData = json.load(f)  # Load existing data
+        except (FileNotFoundError, json.JSONDecodeError):
+            savedData = []  # Initialize if file doesn't exist or is empty\
+
+
         #builds the dict recersivly
         def build_dict(data):
             for key, value in data.items():
@@ -101,17 +110,21 @@ class Minimize(object):
                     data[key] = value.constraintsDisc
                 elif isinstance(value, dict):
                     data[key] = build_dict(value)
+                elif not isinstance(value, Iterable):
+                    data[key] = value
                 elif all(isinstance(v, np.ndarray) for v in value):  
                     data[key] = [v.tolist() for v in value]
                 else:
                     data[key] = value
             return(data)
             
-        save_data = build_dict(self.__dict__)
+        dataToSave = build_dict(self.__dict__)
+
+        savedData.append(dataToSave)
 
         try:
             with open(file_path, 'w') as json_file:
-                json.dump(save_data, json_file, indent=4)
+                json.dump(savedData, json_file, indent=4)
         except IOError as e:
             raise IOError(f"An error occurred while writing to {file_path}: {e}")
 
@@ -180,7 +193,7 @@ class TrustConstr(Minimize):
                  initial_constr_penalty=1, initial_barrier_parameter=.1, 
                  initial_barrier_tolerance=.1, factorization_method=None, 
                  finite_diff_rel_step=None, maxiter=1000, verbose=0, 
-                 disp=False, **kwargs):
+                 disp=False, path=None, **kwargs):
         """
         Defines the optomization routine for the trust-constr scipy class,
         for a definition of arguments please look to scipy docs at:
@@ -201,6 +214,9 @@ class TrustConstr(Minimize):
         self.verbose = verbose
         self.disp = disp
 
+        #for saving the mid run information to a file
+        self.path = path
+
     def minimize(self):
         
         #define grad function
@@ -213,6 +229,36 @@ class TrustConstr(Minimize):
         #get the inital value to save
         self.inital_cost = self.objective(self.x0)
 
+        #if we want to save data, set it up
+        if self.path is not None:
+            # Ensure the JSON file starts as an empty list (if it doesn't exist)
+            try:
+                with open(self.path, "r") as f:
+                    data = json.load(f)  # Load existing data
+            except (FileNotFoundError, json.JSONDecodeError):
+                data = []  # Initialize if file doesn't exist or is empty\
+
+        #callback function that saves data if we want to 
+        def callback(xk, result=None):
+            if result is not None and self.path is not None:
+                iteration_data = {
+                    "iteration": getattr(result, "nit", None),
+                    "objective_value": getattr(result, "fun", None),
+                    "x_values": xk.tolist(),
+                    "trust_region_radius": getattr(result, "tr_radius", None),
+                    "optimality": getattr(result, "optimality", None),
+                    "constraint_violation": getattr(result, "constr_violation", None),
+                    "penalty": getattr(result, "penalty", None),
+                    "barrier_parameter": getattr(result, "barrier_parameter", None),
+                    "cg_iterations": getattr(result, "cg_niter", None),
+                    "cg_stop_condition": getattr(result, "cg_stop_cond", None),
+                }
+
+                # Append the new iteration to the JSON file
+                data.append(iteration_data)
+                with open(self.path, "w") as f:
+                    json.dump(data, f, indent=4)
+
         #run optomization
         t1 = time.time()
         result = minimize(fun=self.scipy_objective,    
@@ -221,6 +267,7 @@ class TrustConstr(Minimize):
                           method='trust-constr',
                           constraints=list(self.constraints.constraints.values()),
                           bounds=self.constraints.build_bounds(),
+                          callback=callback,
                           options={'gtol': self.gtol,
                                    'xtol': self.xtol,
                                    'barrier_tol': self.barrier_tol,

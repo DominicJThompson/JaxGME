@@ -91,15 +91,11 @@ manager.add_rad_bound('minimumRadius',.2,.4)
 manager.add_min_dist('minDist',.1,3,W1Vars(NyChange=3+3))
 manager.add_gme_constrs('gme_constrs',minFreq=.1,maxFreq=1,minNg=10,maxNg=20,ksBefore=[jnp.pi*.5],ksAfter=[jnp.pi],bandwidth=.01,slope='down')
 
-minim = JaxGME.TrustConstr(vars,W1,cost,mode=20,maxiter=10,gmeParams=gmeParams,constraints=manager,verbose=3)
+minim = JaxGME.TrustConstr(vars,W1,cost,mode=20,maxiter=10,gmeParams=gmeParams,constraints=manager,verbose=3,path='media/opt.json')
 
 # %%
 minim.minimize()
 # %%
-#minim.save('media/constr.json')
+minim.save('media/constr.json')
 minim.result
-# %%
-print([0]*10)
-# %%
-print(manager.lowerBounds)
-# %%
+
