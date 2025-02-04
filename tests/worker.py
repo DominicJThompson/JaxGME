@@ -100,21 +100,12 @@ def worker_function(input):
     manager.add_gme_constrs('gme_constrs',minFreq=.26,maxFreq=.28,minNg=6.8,maxNg=6.9,ksBefore=[float(ks[4]),float(ks[6])],ksAfter=[float(ks[14]),float(ks[20])],bandwidth=.005,slope='down')
     
     #run minimization
-    minim = JaxGME.TrustConstr(vars,W1,cost,mode=20,maxiter=2,gmeParams=gmeParams,constraints=manager,path=input['path'])
+    minim = JaxGME.TrustConstr(vars,W1,cost,mode=20,maxiter=500,gmeParams=gmeParams,constraints=manager,path=input['path'])
     minim.minimize()
     minim.save(input['path'])
-    return(input['path'])
 
-if __name__ == "__main__":
-    num_cores = mp.cpu_count()  # Get number of CPU cores
-    num_processes = min(3, num_cores)  # Adjust number of processes (change as needed)
-    
-    numOpts = 4
-    inputValues = [{"path": f"tests/media/opt{i}.json", "key": i} for i in range(numOpts)]
+if __name__=="__main__":
+    input = {'path':f"tests/media/opt{int(sys.argv[1])}.json",'key':int(sys.argv[1])}
+    worker_function(input)  # Compute the result
 
-    # Use multiprocessing Pool to parallelize execution
-    with mp.Pool(processes=num_processes) as pool:
-        results = pool.map(worker_function, inputValues)  # Distribute tasks
-    
-    print("Results:", results)
 # %%
